@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+from sqlalchemy import text
 import yaml
 from sqlalchemy import create_engine, inspect
 from pathlib import Path
@@ -68,7 +69,7 @@ def test_folder_creates_table_and_logs_schema_changes(tmp_path):
 
     # check that schema changes logged
     with engine.connect() as conn:
-        res = conn.execute("SELECT count(*) FROM etl_schema_changes WHERE change_type = 'add_column'")
+        res = conn.execute(text("SELECT count(*) FROM etl_schema_changes WHERE change_type = 'add_column'"))
         count = res.scalar()
     assert count >= 1
 

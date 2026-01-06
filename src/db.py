@@ -4,18 +4,6 @@ from sqlalchemy import Integer, BigInteger, Float, Numeric, String, DateTime, Da
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import column
 from datetime import datetime
-
-# Compatibility shim: allow Connection.execute to accept raw SQL strings
-from sqlalchemy.engine import Connection as _SAConnection
-from sqlalchemy import text as _sa_text
-_SAConnection__orig_execute = getattr(_SAConnection, "execute", None)
-def _compat_execute(self, statement, *args, **kwargs):
-    if isinstance(statement, str):
-        statement = _sa_text(statement)
-    return _SAConnection__orig_execute(self, statement, *args, **kwargs)
-if _SAConnection__orig_execute is not None:
-    _SAConnection.execute = _compat_execute
-
 logger = logging.getLogger(__name__)
 
 
