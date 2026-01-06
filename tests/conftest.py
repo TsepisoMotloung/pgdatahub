@@ -33,14 +33,14 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_pg_connection(mocker):
-    """Create a mock PostgreSQL connection."""
+def mock_pg_connection(monkeypatch):
+    """Create a mock PostgreSQL connection using pytest's monkeypatch."""
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
     mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
     # Mock the context manager behavior
-    mocker.patch("psycopg2.connect", return_value=mock_conn)
+    monkeypatch.setattr(psycopg2, "connect", lambda *a, **k: mock_conn)
 
     return mock_conn, mock_cursor
 
