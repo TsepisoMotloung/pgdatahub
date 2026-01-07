@@ -43,6 +43,64 @@ def ensure_schema_table(engine):
     md.create_all(engine, tables=[table])
 
 
+def ensure_imports_table(engine):
+    """Create the etl_imports table to track processed source files.
+
+    Columns:
+    - id
+    - table_name
+    - source_file
+    - file_sha256
+    - row_count
+    - imported_at
+    """
+    from sqlalchemy import Table, Column, Integer, Text, MetaData, TIMESTAMP, UniqueConstraint
+
+    md = MetaData()
+    table = Table(
+        "etl_imports",
+        md,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("table_name", Text, nullable=False),
+        Column("source_file", Text, nullable=False),
+        Column("file_sha256", Text, nullable=False),
+        Column("row_count", Integer),
+        Column("imported_at", DateTime),
+        UniqueConstraint("table_name", "source_file", "file_sha256", name="u_etl_imports_file"),
+    )
+    md.create_all(engine, tables=[table])
+
+
+def is_imported(engine, table_name, source_file, file_sha256):
+    from sqlalchemy import text
+
+    sql = text(
+        "SELECT COUNT(1) as c FROM etl_imports WHERE table_name = :t AND source_file = :s AND file_sha256 = :h"
+    )
+    with engine.begin() as conn:
+        r = conn.execute(sql, {"t": table_name, "s": source_file, "h": file_sha256}).fetchone()
+        return bool(r and r[0])
+
+
+def log_import(engine, table_name, source_file, file_sha256, row_count):
+    from sqlalchemy import text
+
+    sql = text(
+        "INSERT INTO etl_imports (table_name, source_file, file_sha256, row_count, imported_at) VALUES (:t, :s, :h, :r, :i)"
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            sql,
+            {
+                "t": table_name,
+                "s": source_file,
+                "h": file_sha256,
+                "r": row_count,
+                "i": datetime.utcnow(),
+            },
+        )
+
+
 def reflect_table_columns(engine, table_name):
     md = MetaData()
     try:
@@ -69,6 +127,14 @@ def pandas_dtype_to_sqlalchemy(dtype):
     if "object" in t or "str" in t:
         return String
     return String
+
+
+def is_numeric_sql_type(sql_type: str) -> bool:
+    """Return True if sql_type string represents a numeric SQL type."""
+    if not sql_type:
+        return False
+    t = sql_type.upper()
+    return any(x in t for x in ("DOUBLE", "INT", "REAL", "NUMERIC", "DECIMAL"))
 
 
 def create_table_from_df(engine, table_name, df):

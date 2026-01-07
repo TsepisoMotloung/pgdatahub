@@ -99,3 +99,45 @@ def test_missing_sheet_skips_file(tmp_path):
     engine = create_engine(db_url)
     inspector = inspect(engine)
     assert "skiptable" not in inspector.get_table_names()
+
+
+def test_numeric_column_with_non_numeric_values_coerces_to_text(tmp_path):
+    # Setup data folder
+    data_root = tmp_path / "Data"
+    table_folder = data_root / "pol"
+    table_folder.mkdir(parents=True)
+
+    # create initial excel file with numeric column which will create table
+    df1 = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
+    excel_path = table_folder / "file1.xlsx"
+    write_excel(excel_path, "Sheet1", df1)
+
+    # write config
+    cfg = {"pol": {"sheet_name": "Sheet1"}}
+    cfg_path = tmp_path / "etl_config.yaml"
+    with open(cfg_path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(cfg, fh)
+
+    # use sqlite file DB so we can inspect from another connection
+    db_file = tmp_path / "test_numeric.db"
+    db_url = f"sqlite:///{db_file}"
+    db_conf = {"url": db_url}
+
+    # run etl first time to create table
+    run(data_root=str(data_root), etl_config_path=str(cfg_path), db_config=db_conf)
+
+    # now add another file where col1 has non-numeric values (eg 'No')
+    df2 = pd.DataFrame({"col1": ["No"], "col2": ["c"]})
+    excel_path2 = table_folder / "file2.xlsx"
+    write_excel(excel_path2, "Sheet1", df2)
+
+    # re-run - should not raise and should insert the string value into the table
+    run(data_root=str(data_root), etl_config_path=str(cfg_path), db_config=db_conf)
+
+    # verify row inserted
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT col1 FROM pol WHERE col2 = 'c'"))
+        val = res.scalar()
+    # SQLite is permissive, but we expect to have inserted the string 'No'
+    assert str(val) == 'No'

@@ -1,6 +1,3 @@
-sales:
-  sheet_name: "Sales_Data"
-clients:
-  sheet_name: "Client_Master"
-claims:
-  sheet_name: "Claims"
+new_business:
+  sheet_name: "Sheet 1"
+

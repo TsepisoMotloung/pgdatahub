@@ -15,6 +15,7 @@ from contextlib import closing
 
 import pandas as pd
 import psycopg2 as ps
+import argparse
 
 from src.etl import run
 from src.config import load_db_config
@@ -148,21 +149,58 @@ def load_config():
     return cfg.get("database", {})
 
 
-def import_to_postgres(table_schema, conn_dict):
-    with closing(ps.connect(**conn_dict)) as conn:
-        with conn.cursor() as cur:
-            for file_name, schema in table_schema.items():
-                cur.execute("CREATE TABLE IF NOT EXISTS %s (%s)", (ps.extensions.AsIs(file_name), ps.extensions.AsIs(schema)))
-                with open(f"{file_name}.csv", "r", encoding="utf-8") as my_file:
-                    QUERY = f"""
-                    COPY {file_name} FROM STDIN WITH
-                        CSV
-                        HEADER
-                        DELIMITER AS ','
-                        ENCODING 'UTF8'
-                    """
-                    cur.copy_expert(sql=QUERY, file=my_file)
-            conn.commit()
+def import_to_postgres(table_schema, conn_dict, skip_db=False):
+    """Import CSVs into Postgres. Accepts either a connection dict or a dict with a 'url' (DSN).
+
+    If `skip_db` is True or the connection fails, the import is skipped gracefully.
+    """
+    if skip_db:
+        logger.info("SKIP_DB set — skipping database import.")
+        return
+
+    # Interpret a DSN-style URL if provided (e.g., DATABASE_URL)
+    if isinstance(conn_dict, dict) and "url" in conn_dict:
+        url = conn_dict["url"]
+        # psycopg2 expects a postgres:// DSN, not postgresql+psycopg2://
+        if url.startswith("postgresql+psycopg2://"):
+            url = url.replace("postgresql+psycopg2://", "postgresql://", 1)
+        # Ensure username/password in the DSN are percent-encoded (dots or special chars can cause parsing issues)
+        from urllib.parse import urlsplit, urlunsplit, quote
+
+        parts = urlsplit(url)
+        netloc = parts.netloc
+        if "@" in netloc:
+            userinfo, hostport = netloc.split("@", 1)
+            if ":" in userinfo:
+                user, pwd = userinfo.split(":", 1)
+            else:
+                user, pwd = userinfo, ""
+            user_enc = quote(user, safe="")
+            pwd_enc = quote(pwd, safe="")
+            netloc = f"{user_enc}:{pwd_enc}@{hostport}" if pwd_enc else f"{user_enc}@{hostport}"
+            url = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+        connect_args = {"dsn": url}
+    else:
+        connect_args = conn_dict or {}
+
+    try:
+        with closing(ps.connect(**connect_args)) as conn:
+            with conn.cursor() as cur:
+                for file_name, schema in table_schema.items():
+                    cur.execute("CREATE TABLE IF NOT EXISTS %s (%s)", (ps.extensions.AsIs(file_name), ps.extensions.AsIs(schema)))
+                    with open(f"{file_name}.csv", "r", encoding="utf-8") as my_file:
+                        QUERY = f"""
+                        COPY {file_name} FROM STDIN WITH
+                            CSV
+                            HEADER
+                            DELIMITER AS ','
+                            ENCODING 'UTF8'
+                        """
+                        cur.copy_expert(sql=QUERY, file=my_file)
+                conn.commit()
+    except ps.OperationalError as e:
+        logger.error("DB connection failed: %s — skipping import.", e)
+        return
 
 
 def move_processed_files(processed_files):
@@ -177,13 +215,31 @@ def move_processed_files(processed_files):
             continue
 
 
-def main():
+def main(skip_db=False, data_root_default="data"):
     logger = logging.getLogger(__name__)
-    data_root = "data"
 
-    if not os.path.exists(data_root):
-        logger.info("Data directory '%s' not found — creating it.", data_root)
-        os.makedirs(data_root, exist_ok=True)
+    # If the project contains a top-level 'data' directory, we process folders inside it.
+    # This is the preferred and authoritative source of data for imports.
+    data_root = data_root_default
+    if os.path.isdir(data_root):
+        # Honor --skip-db by setting environment var, which ETL import step respects
+        if skip_db:
+            os.environ["SKIP_DB"] = "1"
+        try:
+            from src import etl
+
+            etl.run(data_root=data_root, etl_config_path="etl_config.yaml", db_config=load_config())
+            logger.info("ETL run completed for data root '%s'", data_root)
+            return
+        except Exception:
+            logger.exception("ETL run failed")
+            sys.exit(1)
+
+    # Fallback legacy behavior (accept files at repo root and move them into 'data/')
+    legacy_data_root = "data"
+    if not os.path.exists(legacy_data_root):
+        logger.info("Data directory '%s' not found — creating it.", legacy_data_root)
+        os.makedirs(legacy_data_root, exist_ok=True)
 
     # Original orchestration: find files, move them to data_root, create dataframes,
     # clean names, build schemas, write CSVs, import into DB and move processed files.
@@ -193,8 +249,8 @@ def main():
         sys.exit(1)
         return
 
-    configure_data_dir(data_files, data_root)
-    df_dict = create_df_dict(data_files, data_root)
+    configure_data_dir(data_files, legacy_data_root)
+    df_dict = create_df_dict(data_files, legacy_data_root)
     if not df_dict:
         logger.error("Failed to process any data files")
         sys.exit(1)
@@ -205,12 +261,19 @@ def main():
     save_df_to_csv(datasets, df_dict)
 
     db_config = load_config()
-    import_to_postgres(schemas, db_config)
+    # Honor environment variable SKIP_DB or CLI flag
+    skip_db_env = os.environ.get("SKIP_DB", "").lower() in ("1", "true", "yes")
+    import_to_postgres(schemas, db_config, skip_db=skip_db or skip_db_env)
     move_processed_files(datasets)
     logger.info("All datasets have been imported successfully")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run pgdatahub ETL pipeline (processes Data/ subfolders)")
+    parser.add_argument("--skip-db", dest="skip_db", action="store_true", help="Skip database import step")
+    parser.add_argument("--data-root", dest="data_root", default="Data", help="Path to the Data root directory")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -219,4 +282,4 @@ if __name__ == "__main__":
             logging.StreamHandler(),
         ],
     )
-    main()
+    main(skip_db=args.skip_db, data_root_default=args.data_root)

@@ -15,6 +15,7 @@ from .db import (
     log_schema_change,
     pandas_dtype_to_sqlalchemy,
     insert_dataframe,
+    is_numeric_sql_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,15 @@ def process_folder(engine, cfg, folder_path):
         logger.info("No excel files found in %s", folder_path)
         return
 
-    # Ensure schema log table exists
+    # Ensure schema log table and import log exist
     ensure_schema_table(engine)
+    try:
+        from .db import ensure_imports_table, is_imported, log_import
+
+        ensure_imports_table(engine)
+    except Exception:
+        # if imports table cannot be created for some reason, continue but warn
+        logger.warning("Could not ensure imports table exists")
 
     for f in files:
         try:
@@ -72,6 +80,21 @@ def process_folder(engine, cfg, folder_path):
                 # sheet missing or cannot be found
                 logger.warning("Skipping file %s — sheet '%s' not found", f, sheet_name)
                 continue
+
+            # compute file sha to detect duplicates
+            import hashlib
+
+            with open(f, "rb") as fh:
+                file_bytes = fh.read()
+            file_sha = hashlib.sha256(file_bytes).hexdigest()
+
+            # skip if already imported exactly
+            try:
+                if is_imported(engine, table_name, os.path.basename(f), file_sha):
+                    logger.info("Skipping %s — already imported (same file hash)", f)
+                    continue
+            except Exception:
+                logger.warning("Could not check import log for %s", f)
 
             df = normalize_dataframe_columns(df)
             # add metadata
@@ -150,9 +173,53 @@ def process_folder(engine, cfg, folder_path):
                                     os.path.basename(f),
                                 )
 
+                # If the existing table has numeric types but incoming data contains
+                # non-numeric values, alter the column to TEXT so the insert won't fail
+                for c in df.columns:
+                    if c in existing_cols:
+                        old_type = existing_cols[c]
+                        if is_numeric_sql_type(old_type):
+                            # check whether there are any non-numeric values in the column
+                            s = df[c].dropna()
+                            if not s.empty:
+                                coerced = pd.to_numeric(s, errors="coerce")
+                                num_non_numeric = int(coerced.isna().sum())
+                                if num_non_numeric > 0:
+                                    try:
+                                        q = alter_column_type(engine, table_name, c, "TEXT")
+                                        log_schema_change(
+                                            engine,
+                                            table_name,
+                                            c,
+                                            old_type,
+                                            "TEXT",
+                                            "alter_type",
+                                            q,
+                                            os.path.basename(f),
+                                        )
+                                    except Exception as e:
+                                        # If we cannot alter the column (eg sqlite), coerce values to
+                                        # string in the dataframe so they can be inserted without
+                                        # failing parameter type checks.
+                                        logger.warning(
+                                            "Could not alter column %s to TEXT: %s. Coercing values to str in dataframe.",
+                                            c,
+                                            e,
+                                        )
+                                        df[c] = df[c].astype(str)
+
             # Finally insert rows
             insert_dataframe(engine, table_name, df)
             logger.info("Inserted data from %s into table %s", f, table_name)
+
+            # log import to avoid re-importing identical files later
+            try:
+                from .db import log_import
+
+                row_count = len(df.index)
+                log_import(engine, table_name, os.path.basename(f), file_sha, row_count)
+            except Exception:
+                logger.warning("Failed to log import for %s", f)
 
         except Exception as e:
             logger.exception("Failed processing file %s: %s", f, e)

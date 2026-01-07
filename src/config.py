@@ -38,7 +38,12 @@ def load_db_config(path: str = "config.json") -> dict:
     import json
 
     if os.environ.get("DATABASE_URL"):
-        return {"url": os.environ.get("DATABASE_URL")}
+        url = os.environ.get("DATABASE_URL")
+        # Normalize common PostgreSQL URL patterns to ensure psycopg2 driver is explicit.
+        # e.g., convert 'postgresql://user:pass@host:port/db' to 'postgresql+psycopg2://user:pass@host:port/db'
+        if url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return {"url": url}
 
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as fh:

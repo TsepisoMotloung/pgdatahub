@@ -71,18 +71,25 @@ Database connection settings are stored in the `config.json` file. **Note: When 
    ```
 5. Save the file
 
-## Usage
+    ### Using an environment variable (recommended) 💡
+    For remote databases (for example, Supabase), it's recommended to set a `DATABASE_URL` environment variable instead of committing credentials to disk.
+    - Example formatted connection string:
+      ```
+      postgresql+psycopg2://postgres:YOUR_PASSWORD@db.srwadirqletenulzzlrh.supabase.co:5432/postgres?sslmode=require
+      ```
+    - To set it in your shell:
+      ```bash
+      export DATABASE_URL='postgresql+psycopg2://postgres:YOUR_PASSWORD@db.srwadirqletenulzzlrh.supabase.co:5432/postgres?sslmode=require'
+      ```
+    - `src/config.py` will read `DATABASE_URL` if present and normalize the URL for SQLAlchemy.
 
-1. Make sure you have a PostgreSQL server running
-2. Update the `config.json` file with your database credentials
-3. Place your data files (CSV, JSON, Excel) in the same directory as `main.py`
-4. Run the script:
+    **Security note:** Never commit real passwords to your repository; use environment variables or a secrets manager. Do not include real credentials in `config.example.json` — keep it a template with placeholders, and rotate any credential immediately if it was exposed.
 
-```
-python main.py
-```
-
-The script will:
+    **If a secret was exposed:**
+    1. Rotate the credential immediately (e.g., reset the DB password in Supabase dashboard).
+    2. Remove the secret from your local files and replace it with placeholders.
+    3. If the secret was pushed to a remote, consider removing it from git history using tools like `git filter-repo` or [BFG Repo-Cleaner](https://rtyley.github.io/bfg-repo-cleaner/) (this rewrites history and requires a forced push and coordination with collaborators).
+    4. After rotation, update any systems that used the old secret and confirm access works with the new credential.
 1. Move your original data files to an "unprocessed_data" directory
 2. Process each file and create appropriate dataframes
 3. Clean and standardize column names and file names

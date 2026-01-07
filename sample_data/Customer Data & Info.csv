@@ -1,6 +1,0 @@
-id,First Name,Last Name,e-mail address,Phone #,Age (Years),Registration Date,Income$,Country/Region,haspurchased
-1,John,Doe,john.doe@example.com,555-123-4567,32,2023-01-15,75000.50,United States,true
-2,Jane,Smith,jane.smith@example.com,555-987-6543,28,2023-02-20,82500.75,Canada,false
-3,Michael,Johnson,michael.j@example.com,555-246-8135,45,2022-11-05,95000.25,United Kingdom,true
-4,Emily,Williams,emily.w@example.com,555-369-1472,36,2023-03-10,68000.00,Australia,true
-5,David,Brown,david.b@example.com,555-159-7532,41,2022-12-18,110000.75,New Zealand,false
