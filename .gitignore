@@ -35,6 +35,10 @@ config.json
 # Data folders
 unprocessed_data/
 processed_data/
+# Top-level runtime data directory (store pulled datasets here locally; do not commit)
+/data/
+# Import logs
+data_import_*.log
 
 # Data files
 *.csv
