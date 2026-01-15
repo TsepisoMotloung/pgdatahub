@@ -1,3 +1,12 @@
 new_business:
   sheet_name: "Sheet 1"
-
+nb_queries:
+  sheet_name: "sheet1"
+nb_credit_life:
+  sheet_name: "Sheet1"
+pc_retail_receipts:
+  sheet_name: "Sheet 1"
+pc_retail_billing:
+  sheet_name: "H"
+pc_credit_life:
+  sheet_name: "Sheet1"

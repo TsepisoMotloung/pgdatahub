@@ -268,10 +268,95 @@ def main(skip_db=False, data_root_default="data"):
     logger.info("All datasets have been imported successfully")
 
 
+def interactive_menu():
+    """Simple command-based interactive menu for common operations."""
+    logger = logging.getLogger(__name__)
+    from src.db import get_engine, revert_import, revert_schema_changes
+
+    print("\nPGDataHub — interactive console")
+    while True:
+        print("\nSelect an action:")
+        print("  1) Import data")
+        print("  2) Revert")
+        print("  3) Exit")
+        try:
+            choice = input("Choice (1-3): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nExiting.")
+            return
+        if choice == "1":
+            default_root = "data"
+            data_root = input(f"Data root path (default '{default_root}'): ").strip() or default_root
+            # If user typed a case variant, prefer an existing directory if found
+            if not os.path.isdir(data_root):
+                alt = data_root.lower()
+                alt2 = data_root.capitalize()
+                if os.path.isdir(alt):
+                    print(f"Using data directory '{alt}'")
+                    data_root = alt
+                elif os.path.isdir(alt2):
+                    print(f"Using data directory '{alt2}'")
+                    data_root = alt2
+
+            dry = input("Skip DB import? (y/N): ").strip().lower().startswith("y")
+            try:
+                main(skip_db=dry, data_root_default=data_root)
+            except Exception as e:
+                logger.exception("Import failed: %s", e)
+        elif choice == "2":
+            print("\nRevert options:")
+            print("  1) Revert import (by file SHA)")
+            print("  2) Revert schema changes (by source file)")
+            sub = input("Choice (1-2): ").strip()
+            if sub == "1":
+                table = input("Target table name: ").strip()
+                identifier = input("Document file SHA (file_sha256) or source filename: ").strip()
+                mode = input("Interpret as (s)ha or (n)ame? (s/n, default detect): ").strip().lower() or "detect"
+                dry = input("Dry run? (y/N): ").strip().lower().startswith("y")
+                try:
+                    engine = get_engine(load_config())
+                    if dry:
+                        res = revert_import(engine, table, identifier, dry_run=True)
+                        print("DRY RUN — would delete:", res)
+                    else:
+                        deleted = revert_import(engine, table, identifier, dry_run=False)
+                        print({"deleted": deleted})
+                except Exception as e:
+                    logger.exception("Revert import failed: %s", e)
+            elif sub == "2":
+                table = input("Target table name: ").strip()
+                source_file = input("Source file name (eg 'file.xlsx'): ").strip()
+                dry = input("Dry run? (y/N): ").strip().lower().startswith("y")
+                try:
+                    engine = get_engine(load_config())
+                    if dry:
+                        actions = revert_schema_changes(engine, table, source_file, dry_run=True)
+                        print("DRY RUN — actions:", actions)
+                    else:
+                        cnt = revert_schema_changes(engine, table, source_file, dry_run=False)
+                        print({"actions_performed": cnt})
+                except Exception as e:
+                    logger.exception("Revert schema failed: %s", e)
+            else:
+                print("Invalid revert option")
+        elif choice in ("3", "q", "quit"):
+            print("Goodbye")
+            return
+        else:
+            print("Invalid choice — enter 1, 2, or 3")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run pgdatahub ETL pipeline (processes Data/ subfolders)")
     parser.add_argument("--skip-db", dest="skip_db", action="store_true", help="Skip database import step")
     parser.add_argument("--data-root", dest="data_root", default="Data", help="Path to the Data root directory")
+
+    # Revert support: revert by table name + file sha (use --dry-run to preview)
+    parser.add_argument("--revert", dest="revert", action="store_true", help="Revert an import (requires --table and --file-sha)")
+    parser.add_argument("--table", dest="table", help="Target table name for revert")
+    parser.add_argument("--file-sha", dest="file_sha", help="file_sha256 of the import to revert")
+    parser.add_argument("--dry-run", dest="dry_run", action="store_true", help="Preview revert without deleting rows")
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -282,4 +367,32 @@ if __name__ == "__main__":
             logging.StreamHandler(),
         ],
     )
+
+    # If no arguments are provided, bring up the interactive menu by default
+    if len(sys.argv) == 1:
+        interactive_menu()
+        sys.exit(0)
+
+    # If revert is requested, handle it here and exit
+    if args.revert:
+        if not args.table or not args.file_sha:
+            logger.error("--revert requires --table and --file-sha")
+            sys.exit(2)
+        try:
+            from src.db import get_engine, revert_import
+
+            engine = get_engine(load_config())
+            if args.dry_run:
+                res = revert_import(engine, args.table, args.file_sha, dry_run=True)
+                logger.info("DRY RUN: would delete: %s", res)
+                print(res)
+            else:
+                deleted = revert_import(engine, args.table, args.file_sha, dry_run=False)
+                logger.info("Deleted %s rows from table %s for import %s", deleted, args.table, args.file_sha)
+                print({"deleted": deleted})
+            sys.exit(0)
+        except Exception as e:
+            logger.exception("Revert failed: %s", e)
+            sys.exit(1)
+
     main(skip_db=args.skip_db, data_root_default=args.data_root)
