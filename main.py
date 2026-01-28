@@ -13,6 +13,11 @@ import sys
 from datetime import datetime
 from contextlib import closing
 
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 import pandas as pd
 import psycopg2 as ps
 import argparse

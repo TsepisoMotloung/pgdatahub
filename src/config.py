@@ -1,6 +1,9 @@
 import os
 import yaml
+from dotenv import load_dotenv
 
+# Load .env file at module import time
+load_dotenv()
 
 DEFAULT_CONFIG_FILE = "etl_config.yaml"
 
@@ -34,13 +37,15 @@ def get_sheet_name_for_folder(cfg: dict, folder_parts: list) -> str:
 
 
 def load_db_config(path: str = "config.json") -> dict:
-    """Load DB configuration as fallback (keeps compatibility with project)."""
+    """Load DB configuration from DATABASE_URL env var or config.json."""
     import json
-
+    
+    # Always load .env first
+    load_dotenv()
+    
     if os.environ.get("DATABASE_URL"):
         url = os.environ.get("DATABASE_URL")
         # Normalize common PostgreSQL URL patterns to ensure psycopg2 driver is explicit.
-        # e.g., convert 'postgresql://user:pass@host:port/db' to 'postgresql+psycopg2://user:pass@host:port/db'
         if url.startswith("postgresql://") and not url.startswith("postgresql+psycopg2://"):
             url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return {"url": url}
