@@ -82,23 +82,24 @@ def is_imported(engine, table_name, source_file, file_sha256):
         return bool(r and r[0])
 
 
-def log_import(engine, table_name, source_file, file_sha256, row_count):
+def log_import(engine, table_name, source_file, file_sha256, row_count, conn=None):
     from sqlalchemy import text
 
     sql = text(
         "INSERT INTO etl_imports (table_name, source_file, file_sha256, row_count, imported_at) VALUES (:t, :s, :h, :r, :i)"
     )
-    with engine.begin() as conn:
-        conn.execute(
-            sql,
-            {
-                "t": table_name,
-                "s": source_file,
-                "h": file_sha256,
-                "r": row_count,
-                "i": datetime.utcnow(),
-            },
-        )
+    params = {
+        "t": table_name,
+        "s": source_file,
+        "h": file_sha256,
+        "r": row_count,
+        "i": datetime.utcnow(),
+    }
+    if conn is not None:
+        conn.execute(sql, params)
+    else:
+        with engine.begin() as _conn:
+            _conn.execute(sql, params)
 
 
 def reflect_table_columns(engine, table_name):
@@ -137,10 +138,17 @@ def is_numeric_sql_type(sql_type: str) -> bool:
     return any(x in t for x in ("DOUBLE", "INT", "REAL", "NUMERIC", "DECIMAL"))
 
 
-def create_table_from_df(engine, table_name, df):
-    # Create an empty table skeleton using pandas without inserting rows
+def create_table_from_df(engine, table_name, df, conn=None):
+    """Create an empty table skeleton using pandas without inserting rows.
+
+    If `conn` (a SQLAlchemy Connection) is provided, use it so the operation can
+    be included in an external transaction.
+    """
     try:
-        df.head(0).to_sql(table_name, engine, if_exists="fail", index=False)
+        if conn is not None:
+            df.head(0).to_sql(table_name, conn, if_exists="fail", index=False)
+        else:
+            df.head(0).to_sql(table_name, engine, if_exists="fail", index=False)
         logger.info("Table %s created", table_name)
         return True
     except Exception as e:
@@ -148,10 +156,13 @@ def create_table_from_df(engine, table_name, df):
         raise
 
 
-def add_column(engine, table_name, column_name, sqlalchemy_type):
+def add_column(engine, table_name, column_name, sqlalchemy_type, conn=None):
     q = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {sqlalchemy_type}"
-    with engine.begin() as conn:
+    if conn is not None:
         conn.execute(text(q))
+    else:
+        with engine.begin() as _conn:
+            _conn.execute(text(q))
     return q
 
 
@@ -171,32 +182,36 @@ def is_safe_widening(old_type, new_type):
     return (o, n) in SAFE_WIDENINGS
 
 
-def alter_column_type(engine, table_name, column_name, new_type):
+def alter_column_type(engine, table_name, column_name, new_type, conn=None):
     q = f"ALTER TABLE {table_name} ALTER COLUMN {column_name} TYPE {new_type} USING {column_name}::{new_type}"
-    with engine.begin() as conn:
+    if conn is not None:
         conn.execute(text(q))
+    else:
+        with engine.begin() as _conn:
+            _conn.execute(text(q))
     return q
 
 
-def log_schema_change(engine, table_name, column_name, old_type, new_type, change_type, migration_query, source_file=None):
+def log_schema_change(engine, table_name, column_name, old_type, new_type, change_type, migration_query, source_file=None, conn=None):
     sql = text(
         "INSERT INTO etl_schema_changes (table_name, column_name, old_type, new_type, change_type, change_timestamp, migration_query, source_file)"
         " VALUES (:table_name, :column_name, :old_type, :new_type, :change_type, :change_timestamp, :migration_query, :source_file)"
     )
-    with engine.begin() as conn:
-        conn.execute(
-            sql,
-            {
-                "table_name": table_name,
-                "column_name": column_name,
-                "old_type": old_type,
-                "new_type": new_type,
-                "change_type": change_type,
-                "change_timestamp": datetime.utcnow(),
-                "migration_query": migration_query,
-                "source_file": source_file,
-            },
-        )
+    params = {
+        "table_name": table_name,
+        "column_name": column_name,
+        "old_type": old_type,
+        "new_type": new_type,
+        "change_type": change_type,
+        "change_timestamp": datetime.utcnow(),
+        "migration_query": migration_query,
+        "source_file": source_file,
+    }
+    if conn is not None:
+        conn.execute(sql, params)
+    else:
+        with engine.begin() as _conn:
+            _conn.execute(sql, params)
 
 
 def _validate_table_name(table_name: str) -> bool:
@@ -669,7 +684,7 @@ def _validate_dataframe_for_insert(df):
         raise ValueError(f"Invalid column names for SQL insertion: {invalid}")
 
 
-def insert_dataframe(engine, table_name, df):
+def insert_dataframe(engine, table_name, df, conn=None):
     # Do a quick, cheap validation to fail fast and provide a clear error
     try:
         _validate_dataframe_for_insert(df)
@@ -678,7 +693,10 @@ def insert_dataframe(engine, table_name, df):
         raise
 
     try:
-        df.to_sql(table_name, engine, if_exists="append", index=False, method="multi")
+        if conn is not None:
+            df.to_sql(table_name, conn, if_exists="append", index=False, method="multi")
+        else:
+            df.to_sql(table_name, engine, if_exists="append", index=False, method="multi")
     except Exception as e:
         logger.error("Failed to insert rows into %s: %s", table_name, e)
         raise

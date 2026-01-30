@@ -230,10 +230,23 @@ def main(skip_db=False, data_root_default="data"):
         # Honor --skip-db by setting environment var, which ETL import step respects
         if skip_db:
             os.environ["SKIP_DB"] = "1"
+        # Read sectional commit and resume options from environment
+        sectional_commit = bool(os.environ.get("ETL_SECTIONAL_COMMIT"))
+        cool_down_seconds = int(os.environ.get("ETL_COOL_DOWN_SECONDS", "0"))
+        resume = bool(os.environ.get("ETL_RESUME"))
+        pause_file = os.environ.get("ETL_PAUSE_FILE", ".etl_pause.json")
         try:
             from src import etl
 
-            etl.run(data_root=data_root, etl_config_path="etl_config.yaml", db_config=load_config())
+            etl.run(
+                data_root=data_root,
+                etl_config_path="etl_config.yaml",
+                db_config=load_config(),
+                sectional_commit=sectional_commit,
+                cool_down_seconds=cool_down_seconds,
+                resume=resume,
+                pause_file=pause_file,
+            )
             logger.info("ETL run completed for data root '%s'", data_root)
             return
         except Exception:
