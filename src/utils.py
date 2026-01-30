@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+import pandas as pd
 
 # reuse a cleaning behavior similar to root main.py
 TR_MAPPING = str.maketrans("ıİğĞüÜşŞöÖçÇ", "iIgGuUsSoOcC")
@@ -31,9 +32,33 @@ def clean_text(text: str) -> str:
 
 
 def normalize_dataframe_columns(df):
+    """Normalize column names and coalesce duplicate names.
+
+    - Clean column names using `clean_text`.
+    - If multiple columns clean to the same name, coalesce them by taking
+      the first non-null value across the duplicates for each row.
+    This prevents duplicate column labels (which cause SQL insert errors).
+    """
     df = df.copy()
     df.columns = [clean_text(c) for c in df.columns]
-    return df
+
+    # Build a new dataframe with unique column names. For duplicates, coalesce
+    # by taking the first non-null value across the duplicate columns.
+    out = pd.DataFrame(index=df.index)
+    seen = set()
+    for name in df.columns:
+        if name in seen:
+            # already processed via first occurrence
+            continue
+        same = df.loc[:, df.columns == name]
+        if same.shape[1] == 1:
+            out[name] = same.iloc[:, 0]
+        else:
+            # take first non-null value across the duplicate columns
+            out[name] = same.bfill(axis=1).iloc[:, 0]
+        seen.add(name)
+
+    return out
 
 
 def utcnow_iso():
