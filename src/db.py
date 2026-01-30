@@ -651,7 +651,32 @@ def revert_schema_changes(engine, table_name, source_file, dry_run=False, backup
     return performed
 
 
+def _validate_dataframe_for_insert(df):
+    """Validate dataframe column names for SQL insertion.
+
+    - Ensure columns are unique
+    - Ensure column names are safe SQL identifiers
+    Raises ValueError with a helpful message if validation fails.
+    """
+    import re
+
+    cols = list(df.columns)
+    dupes = [c for c in set(cols) if cols.count(c) > 1]
+    if dupes:
+        raise ValueError(f"Duplicate column names found: {dupes}")
+    invalid = [c for c in cols if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", c)]
+    if invalid:
+        raise ValueError(f"Invalid column names for SQL insertion: {invalid}")
+
+
 def insert_dataframe(engine, table_name, df):
+    # Do a quick, cheap validation to fail fast and provide a clear error
+    try:
+        _validate_dataframe_for_insert(df)
+    except ValueError as e:
+        logger.error("Dataframe validation failed for %s: %s", table_name, e)
+        raise
+
     try:
         df.to_sql(table_name, engine, if_exists="append", index=False, method="multi")
     except Exception as e:

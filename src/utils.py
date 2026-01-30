@@ -45,8 +45,8 @@ def normalize_dataframe_columns(df):
     # Build a new dataframe with unique column names. For duplicates, coalesce
     # by taking the first non-null value across the duplicate columns.
     out = pd.DataFrame(index=df.index)
-    seen = set()
-    for name in df.columns:
+    seen = {}
+    for idx, name in enumerate(df.columns):
         if name in seen:
             # already processed via first occurrence
             continue
@@ -56,8 +56,29 @@ def normalize_dataframe_columns(df):
         else:
             # take first non-null value across the duplicate columns
             out[name] = same.bfill(axis=1).iloc[:, 0]
-        seen.add(name)
+        seen[name] = 1
 
+    # Ensure columns are valid SQL identifiers and non-empty. If a cleaned name
+    # is empty or doesn't match the pattern, replace it with a safe name
+    # 'col_<n>'. Also enforce uniqueness with numeric suffixes when necessary.
+    import re
+
+    cols = list(out.columns)
+    valid_cols = []
+    used = set()
+    for i, c in enumerate(cols):
+        new_c = c if c else f"col_{i}"
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", new_c):
+            new_c = f"col_{i}"
+        base = new_c
+        suffix = 1
+        while new_c in used:
+            new_c = f"{base}_{suffix}"
+            suffix += 1
+        used.add(new_c)
+        valid_cols.append(new_c)
+
+    out.columns = valid_cols
     return out
 
 
