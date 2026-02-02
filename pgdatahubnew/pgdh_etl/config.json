@@ -1,0 +1,14 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "pgdh_db",
+    "user": "pgdh_user",
+    "password": "${DB_PASSWORD}"
+  },
+  "etl": {
+    "chunk_size": 10000,
+    "supported_extensions": [".xlsx", ".xls", ".xlsm", ".xlsb"],
+    "case_sensitive_folders": false
+  }
+}

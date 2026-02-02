@@ -1,0 +1,33 @@
+# ETL Configuration
+# Maps folder paths to Excel sheet names
+
+# Default sheet name if no specific mapping is found
+# default_sheet: Sheet1
+
+# Folder-specific sheet mappings
+# Use nested structure to match directory hierarchy
+# folder_a:
+#   sheet: Policies
+  
+# folder_b:
+#   nested:
+#     sheet: Claims
+
+new_business:
+  sheet: "Sheet 1"
+nb_queries:
+  sheet: "sheet1"
+nb_credit_life:
+  sheet: "Sheet1"
+pc_retail_receipts:
+  sheet: "Sheet 1"
+pc_retail_billing:
+  sheet: "H"
+pc_credit_life:
+  sheet: "Sheet1"
+# Example of more complex mappings:
+# sales:
+#   2024:
+#     sheet: Q1_Sales
+#   2023:
+#     sheet: Annual_Report

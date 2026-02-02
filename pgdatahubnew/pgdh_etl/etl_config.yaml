@@ -1,0 +1,20 @@
+# ETL Configuration - Maps folder paths to Excel sheet names
+# Folder names are resolved case-insensitively
+
+# Default sheet name if no specific mapping is found
+default_sheet: Sheet1
+
+# Folder-specific sheet mappings
+# Supports nested resolution by walking path segments
+new_business:
+  sheet: "Sheet 1"
+nb_queries:
+  sheet: "sheet1"
+nb_credit_life:
+  sheet: "Sheet1"
+pc_retail_receipts:
+  sheet: "Sheet 1"
+pc_retail_billing:
+  sheet: "H"
+pc_credit_life:
+  sheet: "Sheet1"
